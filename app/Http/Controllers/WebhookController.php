@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use App\Models\ChatSession;
 use App\Models\Agendamento;
 use Twilio\Rest\Client;
@@ -105,11 +106,18 @@ class WebhookController extends Controller
 
     private function sendMessage($to, $message)
     {
-        $twilio = new Client(env('TWILIO_SID'), env('TWILIO_AUTH_TOKEN'));
+        $sid = config('services.twilio.sid');
+        $token = config('services.twilio.token');
+        $from = config('services.twilio.from');
 
-        $twilio->messages->create($to, [
-            'from' => env('TWILIO_WHATSAPP_FROM'),
-            'body' => $message
-        ]);
+        $client = new Client($sid, $token);
+
+        $client->messages->create(
+            $to,
+            [
+                'from' => $from,
+                'body' => $message,
+            ]
+        );
     }
 }
