@@ -66,7 +66,11 @@ class WebhookController extends Controller
             return false;
         }
 
-        $schedulingPhrases = ['agendar', 'marcar', 'banho', 'tem horario', 'dá pra fazer', 'fazer hoje', 'quero banho'];
+        $schedulingPhrases = [
+            'agendar', 'marcar', 'banho', 'tem horario', 'fazer hoje', 'quero banho',
+            'tem horario hoje', 'posso agendar', 'dar banho', 'banho hoje'
+        ];
+        
         foreach ($schedulingPhrases as $phrase) {
             if (str_contains($message, $phrase)) {
                 return true;
@@ -148,7 +152,19 @@ class WebhookController extends Controller
 
     private function handleFirstTimeState(string $phone, ChatSession $session, string $message, array $data)
     {
-        $data['primeira_vez'] = $message;
+        $affirmatives = ['sim', 's', 'claro', 'com certeza', 'simmm', 'é'];
+        $negatives = ['nao', 'não', 'n', 'nunca vim', 'já fui', 'ja fui'];
+
+        $normalized = $this->normalizeMessage($message);
+
+        if (in_array($normalized, $affirmatives)) {
+            $data['primeira_vez'] = true;
+        } elseif (in_array($normalized, $negatives)) {
+            $data['primeira_vez'] = false;
+        } else {
+            return $this->sendMessage($phone, 'Por favor, responda com *sim* ou *não* para sabermos se é sua primeira vez conosco.');
+        }
+
         $session->update(['state' => self::STATE_PET_NAME, 'data' => $data]);
         return $this->sendMessage($phone, 'Legal! Qual é o nome do seu pet?');
     }
@@ -176,16 +192,23 @@ class WebhookController extends Controller
 
     private function handleDateState(string $phone, ChatSession $session, string $message, array $data)
     {
-        $data['data_banho'] = $message;
+        $normalized = trim($message);
+    
+        if (!preg_match('/^(0?[1-9]|[12][0-9]|3[01])[\/\-](0?[1-9]|1[012])[\/\-]\d{2,4}$/', $normalized)) {
+            return $this->sendMessage($phone, 'Por favor, envie a data no formato *dd/mm/aaaa*. Exemplo: 23/05/2025');
+        }
+    
+        $data['data_banho'] = $normalized;
         $session->update(['state' => self::STATE_COMPLETED, 'data' => $data]);
-
+    
         $this->createAppointment($phone, $data);
-
+    
         return $this->sendMessage(
             $phone,
             "Agendamento registrado! Obrigado! 🐶\n\nResumo:\nPet: {$data['nome_pet']}\nRaça: {$data['raca_pet']}\nPorte: {$data['porte_pet']}\nData: {$data['data_banho']}"
         );
     }
+    
 
     private function createAppointment(string $phone, array $data): void
     {
