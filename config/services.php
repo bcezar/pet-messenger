@@ -41,4 +41,14 @@ return [
         'from' => env('TWILIO_FROM'),
     ],
 
+    'vonage' => [
+        'app_id' => env('VONAGE_APP_ID'),
+        'private_key_path' => base_path(env('VONAGE_PRIVATE_KEY')),
+        'wa_number' => env('VONAGE_WA_NUMBER'),
+    ],
+
+    'whatsapp' => [
+        'gateway' => env('WHATSAPP_GATEWAY'),
+    ],
+
 ];
