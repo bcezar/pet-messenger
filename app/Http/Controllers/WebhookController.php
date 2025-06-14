@@ -15,15 +15,12 @@ use Carbon\Carbon;
 class WebhookController extends Controller
 {
     private const STATE_INITIAL = 'inicio';
-    private const STATE_FIRST_TIME = 'esperando_primeira_vez';
     private const STATE_PET_NAME = 'esperando_nome_pet';
     private const STATE_PET_BREED = 'esperando_raca_pet';
     private const STATE_PET_SIZE = 'esperando_porte_pet';
     private const STATE_DATE = 'esperando_data';
     private const STATE_DATE_CONFIRMATION = 'confirmando_data';
     private const STATE_COMPLETED = 'finalizado';
-
-    private const RESTART_COMMAND = 'reiniciar';
 
     public function handle(Request $request)
     {
@@ -39,20 +36,20 @@ class WebhookController extends Controller
 
         // Check for direct intent or restart command
         if ($this->shouldProcessDirectIntent($normalizedMessage, $state)) {
-            return $this->processDirectIntent($from, $session);
+            return $this->processDirectIntent($from, $session, $normalizedMessage);
         }
 
         if ($this->isGreeting($normalizedMessage, $state)) {
-            return $this->sendMessage($from, 'Olá! 😊 Você gostaria de agendar um banho para seu pet? Pode me dizer!');
+            return $this->sendMessage($from, 'Olá! 😊 Sou um assistente virtual. Como posso ajudar você hoje?');
         }
 
-        if ($normalizedMessage === self::RESTART_COMMAND) {
-            return $this->restartConversation($from, $session);
+        if (str_contains($normalizedMessage, 'reiniciar')) {
+            $session->update(['state' => self::STATE_INITIAL, 'data' => []]);
+            return $this->sendMessage($from, 'Sessão reiniciada! Vamos começar de novo. 😊');
         }
 
         // Process main conversation flow
-        return $this->handleAiMessage($from, $session, $normalizedMessage);
-        //return $this->processConversationState($from, $session, $normalizedMessage);
+        return $this->processConversationState($from, $session, $normalizedMessage);
     }
 
     private function normalizeMessage(string $message): string
@@ -85,7 +82,9 @@ class WebhookController extends Controller
             'tem horario hoje',
             'posso agendar',
             'dar banho',
-            'banho hoje'
+            'banho hoje',
+            'agendar banho',
+            'horário'
         ];
 
         foreach ($schedulingPhrases as $phrase) {
@@ -113,19 +112,9 @@ class WebhookController extends Controller
         return false;
     }
 
-    private function processDirectIntent(string $phone, ChatSession $session)
+    private function processDirectIntent(string $phone, ChatSession $session, $message)
     {
-        $session->update([
-            'state' => self::STATE_PET_NAME,
-            'data' => ['intencao_agendamento' => true]
-        ]);
-        return $this->sendMessage($phone, 'Claro! Qual é o nome do seu pet?');
-    }
-
-    private function restartConversation(string $phone, ChatSession $session)
-    {
-        $session->update(['state' => self::STATE_INITIAL, 'data' => []]);
-        return $this->sendMessage($phone, 'Vamos começar de novo! É a sua primeira vez conosco? (sim ou não)');
+        return $this->contactIA($phone, $session, $message);
     }
 
     private function processConversationState(string $phone, ChatSession $session, string $message): null
@@ -136,9 +125,6 @@ class WebhookController extends Controller
         switch ($state) {
             case self::STATE_INITIAL:
                 return $this->handleInitialState($phone, $session);
-
-            case self::STATE_FIRST_TIME:
-                return $this->handleFirstTimeState($phone, $session, $message, $data);
 
             case self::STATE_PET_NAME:
                 return $this->handlePetNameState($phone, $session, $message, $data);
@@ -166,27 +152,8 @@ class WebhookController extends Controller
     // Individual state handlers
     private function handleInitialState(string $phone, ChatSession $session)
     {
-        $session->update(['state' => self::STATE_FIRST_TIME]);
-        return $this->sendMessage($phone, 'Olá! É a sua primeira vez conosco? (sim ou não)');
-    }
-
-    private function handleFirstTimeState(string $phone, ChatSession $session, string $message, array $data)
-    {
-        $affirmatives = ['sim', 's', 'claro', 'com certeza', 'simmm', 'é'];
-        $negatives = ['nao', 'não', 'n', 'nunca vim', 'já fui', 'ja fui'];
-
-        $normalized = $this->normalizeMessage($message);
-
-        if (in_array($normalized, $affirmatives)) {
-            $data['primeira_vez'] = true;
-        } elseif (in_array($normalized, $negatives)) {
-            $data['primeira_vez'] = false;
-        } else {
-            return $this->sendMessage($phone, 'Por favor, responda com *sim* ou *não* para sabermos se é sua primeira vez conosco.');
-        }
-
-        $session->update(['state' => self::STATE_PET_NAME, 'data' => $data]);
-        return $this->sendMessage($phone, 'Legal! Qual é o nome do seu pet?');
+        $session->update(['state' => self::STATE_INITIAL, 'data' => []]);
+        return $this->sendMessage($phone, 'Olá! Sou um assistente virtual. Você pode dizer em poucas palavras o que você precisa?');
     }
 
     private function handlePetNameState(string $phone, ChatSession $session, string $message, array $data)
@@ -310,15 +277,17 @@ class WebhookController extends Controller
         $wa->sendText($to, $message);
     }
 
-    public function handleAiMessage(string $from, $session, $normalizedMessage)
+    private function contactIA(string $to, ChatSession $session, string $message)
     {
-        $gptService = new GptService();
-        $result = $gptService->extractPetData($normalizedMessage);
+        Log::info("Enviando mensagem para IA: $message");
 
+        $gptService = new GptService();
+        $result = $gptService->extractPetData($message);
+        Log::info("Resposta da IA: " . json_encode($result));
         if (isset($result['data'])) {
             // GPT retornou JSON com dados
             $parsedData = $result['data'];
-            $newData = $parsedData;
+            $newData = array_merge($session->data ?? [], $parsedData);
             $session->update(['data' => $newData]);
 
             // Verifica se já temos todos os dados necessários
@@ -326,24 +295,42 @@ class WebhookController extends Controller
             $missingFields = array_diff($requiredFields, array_keys($newData));
 
             if (empty($missingFields)) {
-                $this->createAppointment($from, $newData);
-                $session->update(['state' => 'finalizado']);
-                $this->sendMessage($from, "Tudo certo! 🐾 Agendamento confirmado para *{$newData['data_banho']}*.\n\nPet: {$newData['nome_pet']}, Raça: {$newData['raca_pet']}, Porte: {$newData['porte_pet']}");
-                return;
+                $this->createAppointment($to, $newData);
+                $session->update(['state' => self::STATE_COMPLETED]);
+                return $this->sendMessage($to, "Tudo certo! 🐾 Agendamento confirmado para *{$newData['data_banho']}*.\n\nPet: {$newData['nome_pet']}, Raça: {$newData['raca_pet']}, Porte: {$newData['porte_pet']}");
             }
 
-            // Ainda faltam campos
-            $this->sendMessage($from, "Legal! Agora me diga o(s) seguinte(s): *" . implode(', ', $missingFields) . "*.");
-            return;
+            $updatedState = $this->getCurrentState($missingFields, $session);
+            $session->update(['state' => $updatedState]);
+            return $this->sendMessage($to, "Legal! Agora me diga o(s) seguinte(s): *" . implode(', ', $missingFields) . "*.");
         }
-
         if (isset($result['message'])) {
             // GPT retornou uma mensagem de texto ao invés de JSON
-            $this->sendMessage($from, $result['message']);
-            return;
+            return $this->sendMessage($to, $result['message']);
         }
-
         // Fallback caso nada funcione
-        $this->sendMessage($from, "Desculpe, não consegui entender. Você pode repetir com mais detalhes?");
+        return $this->sendMessage($to, "Desculpe, não consegui entender. Você pode repetir com mais detalhes?");
+    }
+
+    public function getCurrentState(array $missingFields, ChatSession $session): string
+    {
+        if (in_array('nome_pet', $missingFields)) {
+            return self::STATE_PET_NAME;
+        }
+        if (in_array('raca_pet', $missingFields)) {
+            return self::STATE_PET_BREED;
+        }
+        if (in_array('porte_pet', $missingFields)) {
+            return self::STATE_PET_SIZE;
+        }
+        if (in_array('data_banho', $missingFields)) {
+            return self::STATE_DATE;
+        }
+        return self::STATE_INITIAL; // fallback
+    }
+
+    public function handleAiMessage(string $from, $session, $normalizedMessage)
+    {
+        
     }
 }
