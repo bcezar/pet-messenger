@@ -24,9 +24,7 @@ class MessageHelper
 
     public static function normalizePhone(string $phone): string
     {
-        // Remove prefixos como "whatsapp:"
         $phone = str_replace('whatsapp:', '', $phone);
-        // Remove espaços, parênteses, hífens e sinais de "+" se houver
         return preg_replace('/[^\d]/', '', $phone);
     }
 }

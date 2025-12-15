@@ -2,34 +2,34 @@
 
 namespace App\Services;
 
-use Firebase\JWT\JWT as FirebaseJWT;
+use Firebase\JWT\JWT;
+use Illuminate\Support\Facades\Log;
 
 class VonageJwtService
 {
     public function generate(): string
     {
-        $appId = config('services.vonage.app_id');
+        $appId = config('services.vonage.application_id');
         $privateKeyPath = config('services.vonage.private_key_path');
 
-        \Illuminate\Support\Facades\Log::info('Vonage JWT generation', [
-            'app_id' => $appId,
-            'private_key' => $privateKeyPath,
+        Log::info('Vonage JWT generation', [
+            'application_id' => $appId,
+            'private_key_path' => $privateKeyPath,
         ]);
-        
+
         $payload = [
             'application_id' => $appId,
             'iat' => time(),
             'exp' => time() + 3600,
-            'jti' => uniqid(),
-            'sub' => $appId,
+            'jti' => uniqid('', true),
             'acl' => [
                 'paths' => [
-                    '/v0.1/messages/**' => [],
+                    '/v1/messages/**' => [],
                 ]
             ]
         ];
 
-        return FirebaseJWT::encode(
+        return JWT::encode(
             $payload,
             file_get_contents($privateKeyPath),
             'RS256'

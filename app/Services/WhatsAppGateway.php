@@ -2,17 +2,19 @@
 
 namespace App\Services;
 
+use App\Services\Contracts\WhatsAppServiceInterface;
+
 class WhatsAppGateway
 {
     protected $service;
 
-    public function __construct()
+    public function resolve(): WhatsAppServiceInterface
     {
-        $gateway = env('WHATSAPP_GATEWAY');
-
-        $this->service = match ($gateway) {
-            'vonage' => new VonageWhatsAppService(),
-            default => new TwilioWhatsAppService(),
+        return match (config('services.whatsapp.gateway')) {
+            'vonage_sandbox' => app(VonageWhatsAppSandboxService::class),
+            'vonage_prod' => app(VonageWhatsAppService::class),
+            'twilio' => app(TwilioWhatsAppService::class),
+            default => throw new \Exception('WhatsApp gateway inválido'),
         };
     }
 

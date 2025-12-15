@@ -6,21 +6,21 @@ use Illuminate\Support\Facades\Http;
 
 class VonageWhatsAppService
 {
-    public function sendText(string $to, string $message)
+    public function sendText(string $to, string $text)
     {
-        $jwt = (new VonageJwtService())->generate();
+        $jwt = app(VonageJwtService::class)->generate();
 
-        $from = config('services.vonage.wa_number');
-
-        return Http::withToken($jwt)->post('https://api.nexmo.com/v0.1/messages', [
-            "from" => ["type" => "whatsapp", "number" => $from],
-            "to" => ["type" => "whatsapp", "number" => $to],
-            "message" => [
-                "content" => [
-                    "type" => "text",
-                    "text" => $message
+        return Http::withToken($jwt)
+            ->post('https://api.nexmo.com/v1/messages', [
+                'to' => $to,
+                'from' => config('services.vonage.whatsapp_from'),
+                'channel' => 'whatsapp',
+                'message' => [
+                    'content' => [
+                        'type' => 'text',
+                        'text' => $text
+                    ]
                 ]
-            ]
-        ]);
+            ]);
     }
 }

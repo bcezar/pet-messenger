@@ -3,8 +3,9 @@
 namespace App\Services;
 
 use Twilio\Rest\Client;
+use App\Services\Contracts\WhatsAppServiceInterface;
 
-class TwilioWhatsAppService
+class TwilioWhatsAppService implements WhatsAppServiceInterface
 {
     public function sendText(string $to, string $message)
     {

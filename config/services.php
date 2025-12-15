@@ -42,13 +42,19 @@ return [
     ],
 
     'vonage' => [
-        'app_id' => env('VONAGE_APP_ID'),
-        'private_key_path' => base_path(env('VONAGE_PRIVATE_KEY')),
-        'wa_number' => env('VONAGE_WA_NUMBER'),
+        'application_id' => env('VONAGE_APPLICATION_ID'),
+        'private_key_path' => env('VONAGE_PRIVATE_KEY_PATH'),
+        'whatsapp_from' => env('VONAGE_WHATSAPP_FROM'),
+        'api_key' => env('VONAGE_API_KEY'),
+        'api_secret' => env('VONAGE_API_SECRET'),
     ],
 
     'whatsapp' => [
-        'gateway' => env('WHATSAPP_GATEWAY'),
+        'gateway' => env('WHATSAPP_GATEWAY', 'vonage'),
+    ],
+
+    'openai' => [
+        'key' => env('OPENAI_API_KEY'),
     ],
 
 ];

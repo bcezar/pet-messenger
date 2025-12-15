@@ -1,96 +1,147 @@
 <?php
+
 namespace App\Services;
 
-use Illuminate\Container\Attributes\Log;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 
 class GptService
 {
-    /** 
-     * DEPECATED: Use extractPetData instead.
-     */
-    public function old_extractPetData(string $message): array
+    public function handleConversation(array $context): array
     {
-        $prompt = <<<EOT
-Extraia os seguintes dados de um pedido de agendamento de banho e tosa:
-- nome_pet
-- raca_pet
-- porte_pet
+        $prompt = $this->buildPrompt(
+            $context['session_data'] ?? [],
+            $context['user_message']
+        );
 
-Mensagem do cliente: "$message"
-
-Se conseguir identificar algum desses dados, responda com um JSON contendo apenas os campos que conseguiu extrair. Por exemplo:
-{"nome_pet": "Thor", "raca_pet": "Labrador"}
-
-Se não for possível identificar nenhum desses dados, envie uma mensagem educada solicitando que o cliente informe as informações faltantes.
-
-Não diga nada além do JSON ou da mensagem direta ao cliente.
-EOT;
-
-        $response = Http::withToken(env('OPENAI_API_KEY'))
+        $response = Http::withToken(config('services.openai.key'))
             ->post('https://api.openai.com/v1/chat/completions', [
-                'model' => 'gpt-3.5-turbo',
+                'model' => 'gpt-4o-mini',
                 'messages' => [
-                    ['role' => 'user', 'content' => $prompt],
+                    [
+                        'role' => 'system',
+                        'content' => $prompt,
+                    ],
                 ],
-                'temperature' => 0.2,
-                'max_tokens' => 200,
+                'temperature' => 0.3,
+                'max_tokens' => 300,
             ]);
-        
-        Log::resolve(new Log(), app())
-            ->info('GPT Response', [
-                'status' => $response->status(),
-                'body' => $response->body(),
-            ]);
-        $content = $response->json()['choices'][0]['message']['content'] ?? null;
+
+        Log::info('GPT HTTP response', [
+            'status' => $response->status(),
+            'body' => $response->body(),
+        ]);
+
+        $content = $response->json('choices.0.message.content');
 
         if (!$content) {
-            return ['message' => 'Desculpe, não consegui entender sua mensagem. Pode tentar reformular?'];
+            return $this->fallbackResponse();
         }
 
-        $json = json_decode($content, true);
-
-        if (is_array($json)) {
-            return ['data' => $json]; // campos extraídos com sucesso
-        }
-
-        return ['message' => trim($content)]; // resposta textual da IA
+        return $this->parseResponse($content);
     }
 
-    public function extractPetData(string $message): array
+    /**
+     * Prompt principal do sistema
+     */
+    private function buildPrompt(array $sessionData, string $message): string
     {
-        $prompt = <<<EOT
-Identifique a intenção do cliente como você fosse um assitente de um banho e tosa e recebeu a seguinte mensagem:
-Mensagem do cliente: "$message"
-Responda com um JSON contendo a intenção identificada. Por exemplo:
-{"nome_pet": "Thor", "raca_pet": "Labrador", "porte_pet": "Médio", "data_banho": "10/05/2023 10:00"}
-Se não for possível identificar a intenção, responda com uma mensagem educada solicitando as informações necessarias para que o json seja completada.
-EOT;
+        return <<<PROMPT
+Você é uma secretária virtual de um banho e tosa.
 
-        $response = Http::withToken(env('OPENAI_API_KEY'))
-            ->post('https://api.openai.com/v1/chat/completions', [
-                'model' => 'gpt-3.5-turbo',
-                'messages' => [
-                    ['role' => 'user', 'content' => $prompt],
-                ],
-                'temperature' => 0.2,
-                'max_tokens' => 200,
+Seu objetivo é ajudar o cliente a AGENDAR um banho para o pet.
+
+Você deve coletar exatamente estas informações:
+- nome_pet
+- raca_pet
+- porte_pet (pequeno, médio ou grande)
+- data_banho (formato dd/mm/yyyy)
+
+Regras IMPORTANTES:
+- Use também os dados já existentes da sessão.
+- Nunca pergunte algo que já tenha sido informado.
+- Se o cliente enviar vários dados na mesma mensagem, extraia todos.
+- Se a data for relativa (ex: amanhã, segunda), converta para dd/mm/yyyy.
+- Seja educada, clara e objetiva.
+- Quando for responder os dados que foram fornecidos, dar um destaque em negrito.
+- Responda SOMENTE em JSON válido.
+- Nunca escreva texto fora do JSON.
+
+Formato obrigatório da resposta:
+{
+  "reply": "mensagem para o cliente",
+  "data": {
+    "nome_pet": null|string,
+    "raca_pet": null|string,
+    "porte_pet": null|string,
+    "data_banho": null|string
+  },
+  "complete": true|false
+}
+
+Dados atuais da sessão:
+{$this->safeJson($sessionData)}
+
+Mensagem do cliente:
+{$message}
+PROMPT;
+    }
+
+    /**
+     * Parse seguro da resposta da IA
+     */
+    private function parseResponse(string $raw): array
+    {
+        try {
+            $json = json_decode($raw, true, flags: JSON_THROW_ON_ERROR);
+
+            return [
+                'reply' => $json['reply'] ?? 'Pode me explicar melhor, por favor? 😊',
+                'data' => $this->sanitizeData($json['data'] ?? []),
+                'complete' => (bool) ($json['complete'] ?? false),
+            ];
+        } catch (\Throwable $e) {
+            Log::error('Erro ao parsear resposta da IA', [
+                'raw' => $raw,
+                'error' => $e->getMessage(),
             ]);
-        
-        Log::resolve(new Log(), app())
-            ->info('GPT Initial Intent Response', [
-                'status' => $response->status(),
-                'body' => $response->body(),
-            ]);
-        $content = $response->json()['choices'][0]['message']['content'] ?? null;
-        if (!$content) {
-            return ['message' => 'Desculpe, como sou um assistente virtual, preciso de informações mais claras para entender sua intenção. Poderia reformular sua mensagem?'];
+
+            return $this->fallbackResponse();
         }
-        $json = json_decode($content, true);
-        if (is_array($json)) {
-            return ['data' => $json]; // intenção identificada com sucesso
-        }
-        return ['message' => trim($content)]; // resposta textual da IA
-    
+    }
+
+    /**
+     * Limpa e restringe os campos permitidos
+     */
+    private function sanitizeData(array $data): array
+    {
+        return array_filter(
+            array_intersect_key($data, array_flip([
+                'nome_pet',
+                'raca_pet',
+                'porte_pet',
+                'data_banho',
+            ]))
+        );
+    }
+
+    /**
+     * Fallback padrão
+     */
+    private function fallbackResponse(): array
+    {
+        return [
+            'reply' => 'Desculpe 😕 não consegui entender muito bem. Pode me explicar com mais detalhes?',
+            'data' => [],
+            'complete' => false,
+        ];
+    }
+
+    /**
+     * JSON seguro para prompt
+     */
+    private function safeJson(array $data): string
+    {
+        return json_encode($data, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
     }
 }
