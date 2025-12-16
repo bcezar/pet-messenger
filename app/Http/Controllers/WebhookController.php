@@ -9,20 +9,38 @@ use App\Models\ChatSession;
 use App\Models\Agendamento;
 use App\Services\GptService;
 use App\Services\WhatsAppGateway;
+use App\Services\CompanyResolverService;
 
 class WebhookController extends Controller
 {
+    const STATE_INITIAL = "active";
+    
     public function handle(Request $request)
     {
+        $company = app(CompanyResolverService::class)
+            ->resolveFromWebhook($request);
+
+        Log::info('Company resolved', [
+            'company_id' => $company->id,
+            'company_name' => $company->name,
+        ]);
+
         $from = MessageHelper::extractSender($request);
         $message = MessageHelper::extractMessage($request);
 
         Log::info("Mensagem recebida de $from: $message");
 
         $session = ChatSession::firstOrCreate(
-            ['phone' => $from],
-            ['state' => 'active', 'data' => []]
+            [
+                'company_id' => $company->id,
+                'client_phone' => $from,
+            ],
+            [
+                'state' => self::STATE_INITIAL,
+                'data' => [],
+            ]
         );
+
 
         if ($this->isRestart($message)) {
             $session->update(['state' => 'active', 'data' => []]);

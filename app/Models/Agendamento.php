@@ -9,6 +9,7 @@ class Agendamento extends Model
     protected $table = 'agendamentos';
 
     protected $fillable = [
+        'company_id',
         'phone',
         'nome_pet',
         'raca_pet',
@@ -16,4 +17,10 @@ class Agendamento extends Model
         'data_banho',
         'primeira_vez',
     ];
+
+    public function company()
+    {
+        return $this->belongsTo(Company::class);
+    }
 }
+

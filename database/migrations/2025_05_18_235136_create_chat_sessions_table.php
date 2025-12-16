@@ -13,10 +13,13 @@ return new class extends Migration
     {
         Schema::create('chat_sessions', function (Blueprint $table) {
             $table->id();
-            $table->string('phone')->unique();
-            $table->string('state')->default('inicio');
-            $table->json('data')->nullable(); // para armazenar dados do pet
+            $table->foreignId('company_id')->constrained()->cascadeOnDelete();
+            $table->string('client_phone');
+            $table->string('state')->default('active');
+            $table->json('data')->nullable();
             $table->timestamps();
+
+            $table->unique(['company_id', 'client_phone']);
         });
     }
 

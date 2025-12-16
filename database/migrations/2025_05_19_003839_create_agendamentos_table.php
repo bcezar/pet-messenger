@@ -6,26 +6,37 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
         Schema::create('agendamentos', function (Blueprint $table) {
             $table->id();
-            $table->string('phone');
+
+            // 🔑 multi-tenant
+            $table->foreignId('company_id')
+                ->constrained()
+                ->cascadeOnDelete();
+
+            // 📞 cliente
+            $table->string('client_phone');
+
+            // 🐶 dados do pet
             $table->string('nome_pet');
             $table->string('raca_pet')->nullable();
             $table->string('porte_pet')->nullable();
-            $table->string('data_banho')->nullable();
+
+            // 📅 agendamento
+            $table->dateTime('data_banho')->nullable();
+
+            // ℹ️ metadata
             $table->boolean('primeira_vez')->default(false);
+
             $table->timestamps();
+
+            // 🔒 evita duplicidade acidental
+            $table->index(['company_id', 'data_banho']);
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('agendamentos');

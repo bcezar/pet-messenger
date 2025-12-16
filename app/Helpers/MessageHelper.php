@@ -27,4 +27,14 @@ class MessageHelper
         $phone = str_replace('whatsapp:', '', $phone);
         return preg_replace('/[^\d]/', '', $phone);
     }
+
+    public static function extractBotNumber(Request $request): string
+    {
+        $raw = $request->input('To')
+            ?? $request->input('to')
+            ?? '';
+
+        return self::normalizePhone($raw);
+    }
+
 }
