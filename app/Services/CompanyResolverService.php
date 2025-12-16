@@ -4,19 +4,32 @@ namespace App\Services;
 
 use App\Models\Company;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
 use App\Helpers\MessageHelper;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 
 class CompanyResolverService
 {
-    public function resolveFromWebhook(Request $request): Company
+    public function resolve(Request $request): Company
     {
-        $botNumber = MessageHelper::extractBotNumber($request);
+        // Número que recebeu a mensagem (WhatsApp da empresa)
+        $rawTo = $request->input('To')
+            ?? $request->input('to')
+            ?? '';
 
-        Log::info('Resolving company for bot number', [
-            'bot_number' => $botNumber,
-        ]);
+        $companyPhone = MessageHelper::normalizePhone($rawTo);
 
-        return Company::where('whatsapp_number', $botNumber)->firstOrFail();
+        if (!$companyPhone) {
+            throw new \RuntimeException('Número de destino (company) não informado no webhook');
+        }
+
+        $company = Company::where('whatsapp_number', $companyPhone)->first();
+
+        if (!$company) {
+            throw new ModelNotFoundException(
+                "Empresa não encontrada para o número {$companyPhone}"
+            );
+        }
+
+        return $company;
     }
 }

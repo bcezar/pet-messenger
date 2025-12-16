@@ -10,44 +10,69 @@ use App\Models\Agendamento;
 use App\Services\GptService;
 use App\Services\WhatsAppGateway;
 use App\Services\CompanyResolverService;
+use App\Services\ChatSessionResolverService;
+use App\Services\ChatFlowService;
 
 class WebhookController extends Controller
 {
     const STATE_INITIAL = "active";
     
-    public function handle(Request $request)
+    public function handle(
+        Request $request,
+        CompanyResolverService $companyResolver,
+        ChatSessionResolverService $chatSessionResolver,
+        ChatFlowService $chatFlow
+    )
     {
-        $company = app(CompanyResolverService::class)
-            ->resolveFromWebhook($request);
+        $company = $companyResolver->resolve($request);
 
         Log::info('Company resolved', [
             'company_id' => $company->id,
             'company_name' => $company->name,
         ]);
 
-        $from = MessageHelper::extractSender($request);
+        $clientPhone = MessageHelper::extractSender($request);
         $message = MessageHelper::extractMessage($request);
 
-        Log::info("Mensagem recebida de $from: $message");
+        Log::info("Mensagem recebida", [
+            'company_id' => $company->id,
+            'from' => $clientPhone,
+            'message' => $message,
+        ]);
 
-        $session = ChatSession::firstOrCreate(
-            [
-                'company_id' => $company->id,
-                'client_phone' => $from,
-            ],
-            [
-                'state' => self::STATE_INITIAL,
-                'data' => [],
-            ]
-        );
-
+        $session = $chatSessionResolver->resolve($company, $clientPhone);
 
         if ($this->isRestart($message)) {
-            $session->update(['state' => 'active', 'data' => []]);
-            return $this->sendMessage($from, 'Tudo bem 😊 Vamos começar de novo. Como posso ajudar?');
+            $session->update([
+                'state' => self::STATE_INITIAL,
+                'data'  => [],
+            ]);
+
+            return $this->sendMessage(
+                $clientPhone,
+                'Tudo bem 😊 Vamos começar de novo. Como posso ajudar?'
+            );
         }
 
-        return $this->handleWithAI($from, $session, $message);
+        $flow = $chatFlow->handle($session, $message);
+
+        Log::info('ChatFlow result', $flow);
+
+        if (!empty($flow['state'])) {
+            $session->state = $flow['state'];
+        }
+
+        if (!empty($flow['data'])) {
+            $session->data = array_merge($session->data ?? [], $flow['data']);
+        }
+
+        $session->save();
+
+        if (!empty($flow['complete']) && $flow['complete'] === true) {
+            $this->createAppointment($company->id, $clientPhone, $session->data);
+        }
+
+        return $this->sendMessage($clientPhone, $flow['reply']);
     }
 
     private function isRestart(string $message): bool
@@ -70,53 +95,32 @@ class WebhookController extends Controller
         return preg_replace('/[^\p{L}\p{N}\s]/u', '', $normalized);
     }
 
-    private function createAppointment(string $phone, array $data): void
-    {
+    private function createAppointment(
+        int $companyId,
+        string $clientPhone,
+        array $data
+    ): void {
         Agendamento::create([
-            'phone' => $phone,
-            'nome_pet' => $data['nome_pet'],
-            'raca_pet' => $data['raca_pet'],
-            'porte_pet' => $data['porte_pet'],
-            'data_banho' => $data['data_banho'],
-            'primeira_vez' => isset($data['primeira_vez']) && $data['primeira_vez'] === 'sim',
+            'company_id'  => $companyId,
+            'phone'       => $clientPhone,
+            'nome_pet'    => $data['nome_pet'] ?? null,
+            'raca_pet'    => $data['raca_pet'] ?? null,
+            'porte_pet'   => $data['porte_pet'] ?? null,
+            'data_banho'  => $data['data_banho'] ?? null,
+            'primeira_vez'=> ($data['primeira_vez'] ?? null) === 'sim',
         ]);
     }
 
     private function sendMessage(string $to, string $message)
     {
-        Log::info("Enviando mensagem para $to: $message");
+        Log::info("Enviando mensagem", [
+            'to' => $to,
+            'message' => $message,
+        ]);
 
         app(WhatsAppGateway::class)
             ->resolve()
             ->sendText($to, $message);
-    }
-
-    private function handleWithAI(string $to, ChatSession $session, string $message)
-    {
-        $gpt = new GptService();
-
-        $context = [
-            'session_data' => $session->data ?? [],
-            'user_message' => $message,
-        ];
-
-        $response = $gpt->handleConversation($context);
-
-        Log::info('Resposta IA', $response);
-
-        if (!empty($response['data'])) {
-            $session->update([
-            'data' => array_merge($session->data ?? [], $response['data'])
-        ]);
-        }
-
-        if (!empty($response['complete']) && $response['complete'] === true) {
-            $this->createAppointment($to, $session->data);
-
-            $session->update(['state' => 'completed']);
-        }
-
-        return $this->sendMessage($to, $response['reply']);
     }
 
 }

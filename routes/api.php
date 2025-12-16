@@ -12,6 +12,8 @@ Route::post('/send-message', [MessageController::class, 'send']);
 
 Route::post('/twilio/webhook', [WebhookController::class, 'handle']);
 
+Route::post('whatsapp/webhook', [WebhookController::class, 'handle']);
+
 Route::post('/vonage/webhook', [VonageWebhookController::class, 'inbound']);
 Route::post('/vonage/status', [VonageWebhookController::class, 'status']);
 
