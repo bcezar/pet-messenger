@@ -10,7 +10,7 @@ class Agendamento extends Model
 
     protected $fillable = [
         'company_id',
-        'phone',
+        'client_phone',
         'nome_pet',
         'raca_pet',
         'porte_pet',

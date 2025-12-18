@@ -5,13 +5,13 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use App\Helpers\MessageHelper;
-use App\Models\ChatSession;
 use App\Models\Agendamento;
-use App\Services\GptService;
 use App\Services\WhatsAppGateway;
 use App\Services\CompanyResolverService;
 use App\Services\ChatSessionResolverService;
 use App\Services\ChatFlowService;
+use App\Services\RestartIntentService;
+
 
 class WebhookController extends Controller
 {
@@ -21,7 +21,8 @@ class WebhookController extends Controller
         Request $request,
         CompanyResolverService $companyResolver,
         ChatSessionResolverService $chatSessionResolver,
-        ChatFlowService $chatFlow
+        ChatFlowService $chatFlow,
+        RestartIntentService $restartIntent
     )
     {
         $company = $companyResolver->resolve($request);
@@ -42,7 +43,7 @@ class WebhookController extends Controller
 
         $session = $chatSessionResolver->resolve($company, $clientPhone);
 
-        if ($this->isRestart($message)) {
+        if ($restartIntent->isRestart($message)) {
             $session->update([
                 'state' => self::STATE_INITIAL,
                 'data'  => [],
@@ -75,26 +76,6 @@ class WebhookController extends Controller
         return $this->sendMessage($clientPhone, $flow['reply']);
     }
 
-    private function isRestart(string $message): bool
-    {
-        $normalized = $this->normalizeMessage($message);
-
-        return in_array($normalized, [
-            'reiniciar',
-            'resetar',
-            'recomeçar',
-            'comecar de novo',
-            'começar de novo',
-            'restart',
-        ]);
-    }
-
-    private function normalizeMessage(string $message): string
-    {
-        $normalized = strtolower(trim($message));
-        return preg_replace('/[^\p{L}\p{N}\s]/u', '', $normalized);
-    }
-
     private function createAppointment(
         int $companyId,
         string $clientPhone,
@@ -102,7 +83,7 @@ class WebhookController extends Controller
     ): void {
         Agendamento::create([
             'company_id'  => $companyId,
-            'phone'       => $clientPhone,
+            'client_phone'       => $clientPhone,
             'nome_pet'    => $data['nome_pet'] ?? null,
             'raca_pet'    => $data['raca_pet'] ?? null,
             'porte_pet'   => $data['porte_pet'] ?? null,
