@@ -11,6 +11,7 @@ use App\Services\CompanyResolverService;
 use App\Services\ChatSessionResolverService;
 use App\Services\ChatFlowService;
 use App\Services\RestartIntentService;
+use Carbon\Carbon;
 
 
 class WebhookController extends Controller
@@ -70,26 +71,36 @@ class WebhookController extends Controller
         $session->save();
 
         if (!empty($flow['complete']) && $flow['complete'] === true) {
-            $this->createAppointment($company->id, $clientPhone, $session->data);
+            $this->updateOrCreateAppointment($company->id, $clientPhone, $session->data);
         }
 
         return $this->sendMessage($clientPhone, $flow['reply']);
     }
 
-    private function createAppointment(
+    private function updateOrCreateAppointment(
         int $companyId,
         string $clientPhone,
         array $data
     ): void {
-        Agendamento::create([
-            'company_id'  => $companyId,
-            'client_phone'       => $clientPhone,
-            'nome_pet'    => $data['nome_pet'] ?? null,
-            'raca_pet'    => $data['raca_pet'] ?? null,
-            'porte_pet'   => $data['porte_pet'] ?? null,
-            'data_banho'  => $data['data_banho'] ?? null,
-            'primeira_vez'=> ($data['primeira_vez'] ?? null) === 'sim',
-        ]);
+
+        $dataFormatada = Carbon::createFromFormat(
+            'd/m/Y',
+            $data['data_banho']
+        )->format('Y-m-d');
+
+        Agendamento::updateOrCreate(
+            [
+                'company_id'   => $companyId,
+                'client_phone' => $clientPhone,
+                'data_banho'   => $dataFormatada,
+            ],
+            [
+                'nome_pet'     => $data['nome_pet'] ?? null,
+                'raca_pet'     => $data['raca_pet'] ?? null,
+                'porte_pet'    => $data['porte_pet'] ?? null,
+                'primeira_vez' => ($data['primeira_vez'] ?? null) === 'sim',
+            ]
+        );
     }
 
     private function sendMessage(string $to, string $message)

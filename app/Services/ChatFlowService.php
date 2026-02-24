@@ -26,12 +26,34 @@ class ChatFlowService
 
         $response = $gpt->handleConversation($context);
 
+        $data = $response['data'] ?? [];
+
+        $isCompleted = $this->isCompleted($data);
+
         return [
             'reply'    => $response['reply'],
-            'state'    => $response['complete'] ? 'completed' : 'active',
-            'data'     => $response['data'] ?? [],
-            'complete' => $response['complete'] ?? false,
+            'state'    => $isCompleted ? 'completed' : 'active',
+            'data'     => $data,
+            'complete' => $isCompleted,
         ];
+    }
+
+    private function isCompleted(array $data): bool
+    {
+        $required = [
+            'nome_pet',
+            'raca_pet',
+            'porte_pet',
+            'data_banho',
+        ];
+
+        foreach ($required as $field) {
+            if (empty($data[$field])) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function handleCompleted(): array
