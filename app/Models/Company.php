@@ -22,5 +22,13 @@ class Company extends Model
     {
         return $this->hasMany(ChatSession::class);
     }
+
+    /**
+     * Get all messages for this company.
+     */
+    public function messages()
+    {
+        return $this->hasMany(Message::class);
+    }
 }
 
